@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"os"
+	"strings"
+	"time"
 )
 
 type Quiz struct {
@@ -16,6 +19,12 @@ type Quiz struct {
 
 func readCSV(filename string) []Quiz {
 	csvFile, err := os.Open(filename)
+	defer func() {
+		err := csvFile.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 	quizSlice := []Quiz{}
 	if err != nil {
 		log.Fatal(err)
@@ -43,27 +52,49 @@ func readCSV(filename string) []Quiz {
 	return quizSlice
 }
 
-func startQuiz(quizSlice []Quiz) {
+func startQuiz(quizSlice []Quiz, duration uint) {
+	fmt.Printf("Time given for quiz is %d second(s). Press enter to start the quiz\n", duration)
+	_, err := fmt.Scanln()
+	if err != nil {
+		log.Fatal(err)
+	}
+	timer := time.NewTimer(time.Duration(duration) * time.Second)
 	correctCount := 0
 	fmt.Printf("Quiz started! Total question count: %d.\n", len(quizSlice))
 	for i, el := range quizSlice {
-		var userAnswer string
 		fmt.Printf("Question %d. \n%s = ", i+1, el.Question)
-		_, err := fmt.Scanln(&userAnswer)
-		if err != nil {
-			fmt.Printf("Could not get input from user. %s\n", err)
+		answersCh := make(chan string)
+		go func() {
+			var userAnswer string
+			_, err := fmt.Scanln(&userAnswer)
+			if err != nil {
+				log.Fatal("Could not get input from user. %s\n", err)
+			}
+			answersCh <- userAnswer
+		}()
+		select {
+		case <-timer.C:
+			fmt.Printf("\nTotal correct %d out of %d \n", correctCount, len(quizSlice))
+			return
+		case userAnswer := <-answersCh:
+			if strings.ToLower(strings.TrimSpace(userAnswer)) == strings.ToLower(el.Answer) {
+				correctCount++
+			}
 		}
-		if userAnswer == el.Answer {
-			correctCount++
-		}
-
 	}
 	fmt.Printf("Total correct %d out of %d \n", correctCount, len(quizSlice))
+
 }
 
 func main() {
 	filename := flag.String("f", "problems.csv", "csv file to parse quiz from")
+	duration := flag.Uint("d", 30, "duration of the quiz")
+	shuffle := flag.Bool("s", false, "whether to shuffle quiz questions")
 	flag.Parse()
 	quizSlice := readCSV(*filename)
-	startQuiz(quizSlice)
+	if *shuffle {
+		rand.Seed(time.Now().UnixNano())
+		rand.Shuffle(len(quizSlice), func(i, j int) { quizSlice[i], quizSlice[j] = quizSlice[j], quizSlice[i] })
+	}
+	startQuiz(quizSlice, *duration)
 }
